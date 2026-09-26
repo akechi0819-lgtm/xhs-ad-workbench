@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/xhs-ad-workbench/draft.schema.json",
+  "title": "Human-reviewed 3-to-5-card production sheet",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["referenceReviewStatus", "selectedSourceIds", "claims", "title", "body", "tags", "pages", "editorNotes"],
+  "properties": {
+    "referenceReviewStatus": { "const": "human-confirmed" },
+    "selectedSourceIds": { "$ref": "#/$defs/sourceIds" },
+    "claims": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/claim" }
+    },
+    "title": { "type": "string", "minLength": 1 },
+    "body": { "type": "string" },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "pages": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 5,
+      "items": { "$ref": "#/$defs/page" }
+    },
+    "editorNotes": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "sourceIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claimId", "text", "basis", "sourceIds"],
+      "properties": {
+        "claimId": { "type": "string", "minLength": 1 },
+        "text": { "type": "string", "minLength": 1 },
+        "basis": {
+          "type": "string",
+          "enum": ["retained-reference", "human-brief", "editorial-opinion", "needs-verification"]
+        },
+        "sourceIds": { "$ref": "#/$defs/sourceIds" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "basis": { "const": "retained-reference" } } },
+          "then": { "properties": { "sourceIds": { "minItems": 1 } } }
+        }
+      ]
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cardId", "readerFacingCopy", "visualPrompt", "sourceIds"],
+      "properties": {
+        "cardId": { "type": "string", "minLength": 1 },
+        "readerFacingCopy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["headline", "body"],
+          "properties": {
+            "kicker": { "type": "string", "description": "Optional visible label for the reader." },
+            "headline": { "type": "string", "minLength": 1, "description": "Reader-facing copy only." },
+            "body": { "type": "string", "description": "Reader-facing copy only." },
+            "callout": { "type": "string", "description": "Optional short reader-facing emphasis." }
+          }
+        },
+        "visualPrompt": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["promptText", "textTreatment"],
+          "properties": {
+            "promptText": { "type": "string", "minLength": 1, "description": "Visual generation direction; keep reader-facing wording in readerFacingCopy." },
+            "textTreatment": {
+              "type": "string",
+              "enum": ["place-exact-copy-from-readerFacingCopy", "leave-space-for-manual-typesetting", "no-text"]
+            },
+            "avoid": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "sourceIds": { "$ref": "#/$defs/sourceIds" }
+      }
+    }
+  }
+}

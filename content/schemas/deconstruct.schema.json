@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/xhs-ad-workbench/deconstruct.schema.json",
+  "title": "Task brief and human-reviewed reference gate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "humanBrief", "referenceReview"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["awaiting-reference-review", "ready-for-production-draft", "needs-human-clarification"]
+    },
+    "humanBrief": { "$ref": "#/$defs/humanBrief" },
+    "referenceReview": { "$ref": "#/$defs/referenceReview" },
+    "analysis": { "$ref": "#/$defs/analysis" },
+    "clarificationQuestions": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "awaiting-reference-review" } } },
+      "then": {
+        "not": { "required": ["analysis"] },
+        "properties": {
+          "referenceReview": {
+            "properties": {
+              "status": { "const": "pending" },
+              "humanConfirmed": { "const": false }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "ready-for-production-draft" } } },
+      "then": {
+        "required": ["analysis"],
+        "properties": {
+          "referenceReview": {
+            "properties": {
+              "status": { "const": "confirmed" },
+              "humanConfirmed": { "const": true }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "needs-human-clarification" } } },
+      "then": { "required": ["clarificationQuestions"] }
+    }
+  ],
+  "$defs": {
+    "humanBrief": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["topic", "audience", "requirements"],
+      "properties": {
+        "topic": { "type": "string", "minLength": 1 },
+        "audience": { "type": "string", "minLength": 1 },
+        "requirements": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "referenceReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "candidates", "retainedSourceIds", "excludedSourceIds", "humanConfirmed"],
+      "properties": {
+        "status": { "type": "string", "enum": ["pending", "confirmed"] },
+        "candidates": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/referenceCandidate" }
+        },
+        "retainedSourceIds": { "$ref": "#/$defs/sourceIds" },
+        "excludedSourceIds": { "$ref": "#/$defs/sourceIds" },
+        "humanConfirmed": { "type": "boolean" },
+        "reviewNote": { "type": "string" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "confirmed" } } },
+          "then": {
+            "properties": {
+              "candidates": {
+                "items": {
+                  "properties": { "decision": { "enum": ["retain", "exclude"] } }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "referenceCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceId", "title", "sourceType", "summary", "contentScope", "whyCandidate", "decision"],
+      "properties": {
+        "sourceId": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "sourceType": {
+          "type": "string",
+          "enum": ["teedy-material", "internal-document", "conversation-attachment", "user-provided-link"]
+        },
+        "locator": { "type": "string" },
+        "previewUrl": { "type": "string" },
+        "downloadUrl": { "type": "string" },
+        "summary": { "type": "string", "minLength": 1 },
+        "contentScope": {
+          "type": "string",
+          "enum": ["full-text", "partial-text", "metadata-only", "unknown"]
+        },
+        "whyCandidate": { "type": "string", "minLength": 1 },
+        "decision": { "type": "string", "enum": ["pending", "retain", "exclude"] },
+        "decisionNote": { "type": "string" }
+      }
+    },
+    "sourceIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "analysis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "coreMessage", "reusablePatterns", "originalityBoundaries", "claims"],
+      "properties": {
+        "summary": { "type": "string", "minLength": 1 },
+        "coreMessage": { "type": "string", "minLength": 1 },
+        "reusablePatterns": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "originalityBoundaries": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "claims": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/claim" }
+        }
+      }
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claimId", "text", "basis", "sourceIds"],
+      "properties": {
+        "claimId": { "type": "string", "minLength": 1 },
+        "text": { "type": "string", "minLength": 1 },
+        "basis": {
+          "type": "string",
+          "enum": ["retained-reference", "human-brief", "editorial-opinion", "needs-verification"]
+        },
+        "sourceIds": { "$ref": "#/$defs/sourceIds" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "basis": { "const": "retained-reference" } } },
+          "then": { "properties": { "sourceIds": { "minItems": 1 } } }
+        }
+      ]
+    }
+  }
+}

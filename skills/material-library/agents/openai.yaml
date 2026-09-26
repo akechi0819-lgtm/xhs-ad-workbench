@@ -1,0 +1,12 @@
+interface:
+  display_name: "素材库MCP"
+  short_description: "检索并下载 Teedy 素材"
+  default_prompt: "$素材库MCP 请按关键词检索素材，并展示预览和下载入口。"
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "material-library"
+      description: "Search and download authorized materials from remote Teedy"
+      transport: "stdio"
+policy:
+  allow_implicit_invocation: false

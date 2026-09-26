@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/xhs-ad-workbench/humanize.schema.json",
+  "title": "Final-image copy calibration and human approval",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "selectedImages", "imageOrderStatus", "selectedSourceIds", "humanApproval"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["needs-order-clarification", "awaiting-human-approval", "approved"]
+    },
+    "selectedImages": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["attachmentRef"],
+        "properties": {
+          "attachmentRef": { "type": "string", "minLength": 1, "description": "Use the user-visible filename or conversation attachment label; do not generate a hash." },
+          "matchedCardId": { "type": "string" },
+          "visibleText": { "type": "array", "items": { "type": "string" } },
+          "visualNotes": { "type": "string" }
+        }
+      }
+    },
+    "imageOrderStatus": { "type": "string", "enum": ["clear-from-context", "confirmed-by-human", "unclear"] },
+    "selectedSourceIds": { "$ref": "#/$defs/sourceIds" },
+    "finalCopy": { "$ref": "#/$defs/finalCopy" },
+    "diagnosis": { "type": "array", "items": { "type": "string" } },
+    "revisionNotes": { "type": "array", "items": { "type": "string" } },
+    "clarificationQuestions": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "humanApproval": { "$ref": "#/$defs/humanApproval" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "needs-order-clarification" } } },
+      "then": {
+        "required": ["clarificationQuestions"],
+        "properties": {
+          "imageOrderStatus": { "const": "unclear" },
+          "humanApproval": { "properties": { "status": { "const": "pending" }, "confirmedByHuman": { "const": false } } }
+        },
+        "not": { "required": ["finalCopy"] }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "awaiting-human-approval" } } },
+      "then": {
+        "required": ["finalCopy", "diagnosis", "revisionNotes"],
+        "properties": {
+          "imageOrderStatus": { "enum": ["clear-from-context", "confirmed-by-human"] },
+          "humanApproval": { "properties": { "status": { "const": "pending" }, "confirmedByHuman": { "const": false } } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "approved" } } },
+      "then": {
+        "required": ["finalCopy"],
+        "properties": {
+          "imageOrderStatus": { "enum": ["clear-from-context", "confirmed-by-human"] },
+          "humanApproval": { "properties": { "status": { "const": "approved" }, "confirmedByHuman": { "const": true } } }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sourceIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "finalCopy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "body", "tags", "claims"],
+      "properties": {
+        "title": { "type": "string", "minLength": 1 },
+        "body": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "claims": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["claimId", "text", "basis", "sourceIds"],
+            "properties": {
+              "claimId": { "type": "string", "minLength": 1 },
+              "text": { "type": "string", "minLength": 1 },
+              "basis": { "type": "string", "enum": ["retained-reference", "human-brief", "editorial-opinion", "needs-verification"] },
+              "sourceIds": { "$ref": "#/$defs/sourceIds" }
+            },
+            "allOf": [
+              {
+                "if": { "properties": { "basis": { "const": "retained-reference" } } },
+                "then": { "properties": { "sourceIds": { "minItems": 1 } } }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "humanApproval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "confirmedByHuman"],
+      "properties": {
+        "status": { "type": "string", "enum": ["pending", "approved"] },
+        "confirmedByHuman": { "type": "boolean" },
+        "reviewNote": { "type": "string" }
+      }
+    }
+  }
+}
