@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { validateProductionSheet } from "../content/validate-production-sheet.mjs";
+import { renderCanvasSheet } from "../content/export-canvas-sheet.mjs";
 import {
   approveTask,
   archiveTaskForApproval,
@@ -15,7 +16,8 @@ import {
   readTask,
   readTaskByThread,
   recordFinalImages,
-  requestApproval,
+  resolveFinalRisk,
+  resolvePreflightRisk,
   updateTask,
 } from "../src/task-state.mjs";
 
@@ -76,6 +78,11 @@ async function main() {
         if (!validation.valid) throw new Error(`制作单未通过校验：${validation.errors.join("；")}`);
         return createProductionSheet(task, sheet);
       } });
+      await fs.writeFile(path.join(root, "runs", "tasks", taskId, "canvas-sheet.md"), renderCanvasSheet(state.productionSheet), "utf8");
+    } else if (command === "preflight-review") {
+      requireHumanConfirmation();
+      const decisions = await inputJson();
+      state = await updateTask({ root, taskId, update: (task) => resolvePreflightRisk(task, decisions) });
     } else if (command === "images") {
       const images = await inputJson();
       state = await updateTask({ root, taskId, update: (task) => recordFinalImages(task, images, { orderConfirmed: args.includes("--order-clear") }) });
@@ -86,14 +93,17 @@ async function main() {
     } else if (command === "copy") {
       const copy = await inputJson();
       state = await updateTask({ root, taskId, update: (task) => calibrateCopy(task, copy) });
+    } else if (command === "risk-review") {
+      requireHumanConfirmation();
+      const resolution = await inputJson();
+      state = await updateTask({ root, taskId, update: (task) => resolveFinalRisk(task, resolution) });
     } else if (command === "submit") {
-      await updateTask({ root, taskId, update: requestApproval });
       state = await archiveTaskForApproval({ root, taskId });
     } else if (command === "approve") {
       requireHumanConfirmation();
       state = await approveTask({ root, taskId, approvedBy: option("by") || "", note: option("note") || "" });
     } else {
-      throw new Error("命令: init, show, candidates, select, sheet, images, order, copy, submit, approve");
+      throw new Error("命令: init, show, candidates, select, sheet, preflight-review, images, order, copy, risk-review, submit, approve");
     }
   }
   process.stdout.write(`${JSON.stringify(state, null, 2)}\n`);

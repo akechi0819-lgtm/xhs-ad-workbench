@@ -113,6 +113,12 @@ export async function archiveTaskRevision({ root, task }) {
 
     await atomicWriteJson(path.join(staging, "copy.json"), task.finalCopy);
     await atomicWriteJson(path.join(staging, "production-sheet.json"), task.productionSheet);
+    await atomicWriteJson(path.join(staging, "risk-review.json"), {
+      preflight: task.preflightRisk,
+      preflightResolution: task.preflightResolution,
+      final: task.finalRisk,
+      resolution: task.riskResolution,
+    });
     await atomicWriteJson(path.join(staging, "sources.json"), approvedReferences);
     const generatedAt = new Date().toISOString();
     const manifest = {
@@ -134,6 +140,7 @@ export async function archiveTaskRevision({ root, task }) {
       files: {
         copy: "copy.json",
         productionSheet: "production-sheet.json",
+        riskReview: "risk-review.json",
         sources: "sources.json",
         images: archivedImages,
       },

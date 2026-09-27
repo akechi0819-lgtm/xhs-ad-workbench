@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+process.env.XHS_RISK_LEXICON = path.resolve("tests/fixtures/empty-risk-lexicon.json");
 import {
   approveTask,
   archiveTaskForApproval,
@@ -29,7 +30,10 @@ function pages(count = 3) {
   return Array.from({ length: count }, (_, index) => ({
     cardId: `card-${index + 1}`,
     readerFacingCopy: { headline: `第 ${index + 1} 页`, body: "示例正文" },
-    visualPrompt: { promptText: "清楚呈现内容层级", textTreatment: "leave-space-for-manual-typesetting" },
+    canvasPlan: {
+      stylePrompt: "春日校园场景，清爽明亮的编辑插画风格。",
+      layoutPrompt: "标题置于上方，正文分段排列，重点信息放在底部色块。",
+    },
     sourceIds: [],
   }));
 }
@@ -42,6 +46,8 @@ function sheet({ pageCount = 3, selectedSourceIds = [] } = {}) {
     title: "示例制作单",
     body: "发布文案待成品回读后校准",
     tags: [],
+    brandRequirements: "语气清楚克制，现行口径待核，不虚构服务结果。",
+    canvasDefaults: { imageModel: "GPT Image 2", resolution: "2k", aspectRatio: "3:4", quality: "high", imageCount: 1 },
     pages: pages(pageCount),
     editorNotes: [],
   };
@@ -114,7 +120,7 @@ test("制作单限定 3 到 5 页；最终成品图可少于制作页数，顺�
   for (const [index, id] of ["alpha", "beta"].entries()) {
     const filePath = path.join(root, `selected artwork ${id}.png`);
     await fs.writeFile(filePath, `image-${index}`);
-    imageFiles.push({ id, sourcePath: filePath, originalName: `selected artwork ${id}.png` });
+    imageFiles.push({ id, sourcePath: filePath, originalName: `selected artwork ${id}.png`, visibleText: ["示例图上文字"], textReadability: "clear" });
   }
   recordFinalImages(state, imageFiles);
   assert.throws(() => calibrateCopy(state, { title: "title", body: "body", tags: ["history"] }), /先确认最终图片/);
@@ -149,7 +155,7 @@ test("一线程一任务；awaiting_approval 归档与批准后的 manifest 状�
   for (const name of ["opening.webp", "ending.webp"]) {
     const filePath = path.join(root, name);
     await fs.writeFile(filePath, name);
-    imageFiles.push({ sourcePath: filePath, originalName: name });
+    imageFiles.push({ sourcePath: filePath, originalName: name, visibleText: ["示例图上文字"], textReadability: "clear" });
   }
   recordFinalImages(state, imageFiles, { orderConfirmed: true });
   calibrateCopy(state, { title: "老城门里的时间", body: "城门见证了城区的变迁。", tags: ["城市历史", "建筑】"] });
@@ -183,7 +189,7 @@ test("一线程一任务；awaiting_approval 归档与批准后的 manifest 状�
 
   const replacement = path.join(root, "replacement.webp");
   await fs.writeFile(replacement, "replacement image");
-  recordFinalImages(approved, [{ id: "replacement", sourcePath: replacement }], { orderConfirmed: true });
+  recordFinalImages(approved, [{ id: "replacement", sourcePath: replacement, visibleText: ["替换图上文字"], textReadability: "clear" }], { orderConfirmed: true });
   assert.equal(approved.stage, "final_images_received");
   assert.equal(approved.archive, null);
   calibrateCopy(approved, { title: "新图对应的新标题", body: "根据新图重新校准的正文。", tags: ["历史"] });
@@ -192,4 +198,42 @@ test("一线程一任务；awaiting_approval 归档与批准后的 manifest 状�
   const revised = await archiveTaskForApproval({ root, taskId: approved.taskId });
   assert.equal(revised.archive.revision, "revision-002");
   assert.equal(JSON.parse(await fs.readFile(path.join(root, revised.archive.relativePath, "manifest.json"), "utf8")).status, "awaiting_approval");
+});
+
+test("归档图片暂不可读时保留可改图状态，补齐后可重试提交", async (t) => {
+  const root = await temporaryRoot(t);
+  const state = await createTask({ root, taskId: "retry-archive", threadId: "retry-thread", brief: completeBrief() });
+  presentReferencesForReview(state, []);
+  confirmReferenceSelection(state, []);
+  createProductionSheet(state, sheet());
+  const imagePath = path.join(root, "later.png");
+  recordFinalImages(state, [{ sourcePath: imagePath, visibleText: ["示例图上文字"], textReadability: "clear" }], { orderConfirmed: true });
+  calibrateCopy(state, { title: "最终标题", body: "正文", tags: [] });
+  await writeTask({ root, state });
+
+  await assert.rejects(archiveTaskForApproval({ root, taskId: state.taskId }), /ENOENT/);
+  assert.equal((await readTask({ root, taskId: state.taskId })).stage, "copy_calibrated");
+
+  await fs.writeFile(imagePath, "fixture image");
+  const archived = await archiveTaskForApproval({ root, taskId: state.taskId });
+  assert.equal(archived.stage, "awaiting_approval");
+  assert.equal(archived.archive.revision, "revision-001");
+  assert.equal((await archiveTaskForApproval({ root, taskId: state.taskId })).archive.revision, "revision-001");
+});
+
+test("Agent 指出问题后，提交前可换图并重校文案", async (t) => {
+  const root = await temporaryRoot(t);
+  const state = await createTask({ root, taskId: "revise-before-submit", threadId: "revise-thread", brief: completeBrief() });
+  presentReferencesForReview(state, []);
+  confirmReferenceSelection(state, []);
+  createProductionSheet(state, sheet());
+  recordFinalImages(state, [{ id: "old", sourcePath: path.join(root, "old.png"), visibleText: ["旧图标题"], textReadability: "clear" }], { orderConfirmed: true });
+  calibrateCopy(state, { title: "旧标题", body: "旧正文", tags: [] });
+  assert.equal(state.stage, "copy_calibrated");
+
+  recordFinalImages(state, [{ id: "new", sourcePath: path.join(root, "new.png"), visibleText: ["新图标题"], textReadability: "clear" }], { orderConfirmed: true });
+  assert.equal(state.stage, "final_images_received");
+  assert.equal(state.finalCopy, null);
+  calibrateCopy(state, { title: "新标题", body: "新正文", tags: [] });
+  assert.equal(state.finalCopy.title, "新标题");
 });

@@ -7,7 +7,7 @@
 | 固定提交中的来源 | 许可 | 本项目承接位置 | 改编范围 |
 | --- | --- | --- | --- |
 | `server/schemas/deconstruct.schema.json` | 母版 MIT | `content/schemas/deconstruct.schema.json` | 保留内容拆解、证据和来源归属的结构化约束；新增人定选题与受众、参考候选展示、逐项人工保留/排除状态，以及制作单生成前的确认门。移除热点分析状态与账号运营前提。 |
-| `server/schemas/draft.schema.json` | 母版 MIT | `content/schemas/draft.schema.json` | 保留标题、正文、标签、逐页内容与编辑说明；把原 1—6 张 `imageCards` 改成 3—5 页制作单，读者文案与视觉/画布指引分栏，并要求引用只来自人工保留的来源。移除 `characterAction` 和角色资产前提。 |
+| `server/schemas/draft.schema.json` | 母版 MIT | `content/schemas/draft.schema.json` | 保留标题、正文、标签、逐页内容与编辑说明；把原 1—6 张 `imageCards` 改成 3—5 页制作单，并要求引用只来自人工保留的来源。每页只保留一份精确图上文案，加画风、布局和按需 Logo/视觉参考；导出器自动组成顺序明确的 Canvas 节点、连线与完整海报生成指令，避免多份文案相互冲突。保留共用品牌要求和画布设置；发布文案仍待成品图回读后校准。移除 `characterAction` 和角色资产前提。 |
 | `server/schemas/humanize.schema.json` | 母版 MIT | `content/schemas/humanize.schema.json` | 保留中文润色、诊断、修订记录与人工审批结构；改为接收用户回传的最终图、仅在顺序不清时提问，并追溯已选来源。 |
 | `server/schemas/revise.schema.json` | 母版 MIT | 无独立副本 | 检查过该 schema。它与 `humanize` 共用逐页改写和视觉方向字段，并强制绑定品牌角色与 `assetMode`；一期的人在画布自由制作及终稿回读由 `draft` 与 `humanize` 两个阶段覆盖，不单独迁入该账号/角色编辑流程。 |
 | `.agents/skills/lingzao/playbooks/single-note-breakdown-workflow.md` 与 `draft-rewrite-and-benchmark-workflow.md` | Lingzao 子组件 MIT-0 | `content/guides/lingzao-reference-analysis.md` | 只保留有来源证据的内容拆解、可迁移规律、不可照搬边界和转成逐页方案的方法。新增必须先展示素材候选、再等人工逐项筛选的项目流程。 |

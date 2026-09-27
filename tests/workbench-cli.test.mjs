@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+process.env.XHS_RISK_LEXICON = path.resolve("tests/fixtures/empty-risk-lexicon.json");
 import { fileURLToPath } from "node:url";
 
 const cli = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../scripts/workbench.mjs");
@@ -44,10 +45,15 @@ test("命令行先展示候选和接受人工选择，然后才保存制作单",
     title: "历史课程怎么选",
     body: "参考现行课程资料核对。",
     tags: ["历史学习"],
+    brandRequirements: "表达清楚、克制，课程口径以现行资料为准。",
+    canvasDefaults: { imageModel: "GPT Image 2", resolution: "2k", aspectRatio: "3:4", quality: "high", imageCount: 1 },
     pages: [1, 2, 3].map((n) => ({
       cardId: `card-${n}`,
       readerFacingCopy: { headline: `第 ${n} 页`, body: "示例文案" },
-      visualPrompt: { promptText: "简洁信息图", textTreatment: "leave-space-for-manual-typesetting" },
+      canvasPlan: {
+        stylePrompt: "简洁明亮的编辑插画风格，使用浅蓝与暖白配色。",
+        layoutPrompt: "标题置顶，正文分段阅读，重点放在底部信息区。",
+      },
       sourceIds: n === 1 ? ["keep"] : [],
     })),
     editorNotes: [],
@@ -56,11 +62,15 @@ test("命令行先展示候选和接受人工选择，然后才保存制作单",
   const saved = call(root, "sheet", "--task", "example", "--file", sheetFile);
   assert.equal(saved.stage, "production_sheet_ready");
   assert.deepEqual(saved.productionSheet.approvedReferenceIds, ["keep"]);
+  const canvasHandoff = fs.readFileSync(path.join(root, "runs", "tasks", "example", "canvas-sheet.md"), "utf8");
+  assert.match(canvasHandoff, /文字节点 p1-final：最终生成指令/);
+  assert.match(canvasHandoff, /p1-title、p1-copy、p1-style、p1-final/);
+  assert.match(canvasHandoff, /编辑提示词保持空白/);
   assert.equal(call(root, "show", "--thread", "thread-example").taskId, "example");
 
   const imagePath = path.join(root, "selected.png");
   fs.writeFileSync(imagePath, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==", "base64"));
-  const imagesFile = jsonFile(root, "images.json", [{ sourcePath: imagePath, originalName: "selected.png" }]);
+  const imagesFile = jsonFile(root, "images.json", [{ sourcePath: imagePath, originalName: "selected.png", visibleText: ["第 1 页"], textReadability: "clear" }]);
   assert.equal(call(root, "images", "--task", "example", "--file", imagesFile, "--order-clear").stage, "final_images_received");
   const copyFile = jsonFile(root, "copy.json", { title: "最终图片对应标题", body: "已根据最终图片校准的正文。", tags: ["历史学习"] });
   assert.equal(call(root, "copy", "--task", "example", "--file", copyFile).stage, "copy_calibrated");

@@ -202,11 +202,11 @@ def main() -> int:
     skill_path = install_skill(client_mode)
     if client_mode == "codex":
         register_codex(venv_python, credentials_path)
-        print(f"Installed skill to {skill_path}. Start a new Codex thread and type $素材库MCP to search.")
+        print(f"Installed skill to {skill_path}. Start a new Codex task in the workbench project; its Agent can search when the request is clear.")
     elif client_mode == "workbuddy":
         config_path = register_workbuddy(venv_python, credentials_path)
         print(f"Registered 素材库MCP in {config_path}.")
-        print("In WorkBuddy, open Experts · Skills · Connectors → Connectors → Custom Connector, trust and enable material-library, then start a new chat and type $素材库MCP to search.")
+        print("In WorkBuddy, open Experts · Skills · Connectors → Connectors → Custom Connector, trust and enable material-library, then start a new workbench task. The Agent can search when the request is clear.")
     return 0
 
 

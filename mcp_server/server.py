@@ -6,7 +6,7 @@ import html
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -23,20 +23,23 @@ from mcp_server.teedy import (
     user_client,
     zip_download_url,
 )
-from mcp_server.vocab import extract_tags_from_query, remaining_keywords, resolve_tags
+from mcp_server.vocab import resolve_tags
 
 DOWNLOAD_DIR = ROOT / "runs" / "mcp_downloads"
 MAX_LIMIT = 20
-DEFAULT_LIMIT = 8
-PREVIEW_LIMIT = 3
+DEFAULT_LIMIT = 12
+PREVIEW_LIMIT = 1
 
 mcp = FastMCP(
     name="素材库MCP",
     log_level="WARNING",
     instructions=(
-        "仅当用户在本轮明确写下 $素材库MCP 时使用这些工具。"
-        "普通编程、其他项目、随口提到小红书或考试都不要搜。"
-        "先 list_tags，把口语映射到标签 name，再 search_materials。"
+        "仅在小红书投放素材生产工作台中，需求已足够明确且确实需要历史素材参考时使用这些工具；不要求用户输入特殊触发词。"
+        "其他项目或普通编程任务不要搜索素材。"
+        "只有要用标签筛选时才先 list_tags；纯关键词检索无需额外列标签。标签只按用户明确范围传入，不从 query 自动推断。"
+        "search_materials 默认只返回图文，硬条件通过 required_concepts 表达；每组内为同义说法/备选范围（命中一个即可），不同组都必须命中。"
+        "不要为扩大结果静默删除标签、关键词或 required_concepts；无结果时说明未命中并交给用户决定是否放宽。"
+        "默认检索 12 项作为候选池，limit 可按需调节，最多 20 项；这是检索池大小，不是给用户展示的固定数量。候选较少时全部返回；候选较多时由 Agent 根据相关性筛选展示。每个候选只给 1 张预览和受 Teedy ACL 保护的 zip 下载链接。不要在人工保留前调用 get_material 或 download_file。"
         "以当前已配置的 Teedy 账号访问；账号可以是 ADMIN 或具备 READ 的 Reader。MCP 工具只检索、预览和下载，不上传、改标签或删文档。"
         "当前标签是 v0。结果必须给出预览图 URL 和 zip/文件下载链接，不要只给仓库打开页。"
         "这些链接受 Teedy 登录和权限保护；打开链接的浏览器需要登录同一个 Teedy 服务器。"
@@ -61,6 +64,55 @@ def _is_image(file: dict[str, Any]) -> bool:
     mime = (file.get("mimetype") or "").lower()
     name = (file.get("name") or "").lower()
     return mime.startswith("image/") or name.endswith((".jpg", ".jpeg", ".png", ".webp", ".gif"))
+
+
+def _is_video(file: dict[str, Any]) -> bool:
+    mime = (file.get("mimetype") or "").lower()
+    name = (file.get("name") or "").lower()
+    return mime.startswith("video/") or name.endswith((
+        ".3gp", ".avi", ".m4v", ".mkv", ".mov", ".mp4", ".mpeg", ".mpg", ".mts", ".ts", ".webm",
+    ))
+
+
+def _metadata_media_type(doc: dict[str, Any]) -> str | None:
+    """Read explicit video markers; an image cover never overrides a video marker."""
+    explicit_fields = (
+        doc.get("media_type"), doc.get("mediaType"), doc.get("content_type"),
+        doc.get("contentType"), doc.get("source_type"), doc.get("sourceType"),
+        doc.get("type"), doc.get("source"),
+    )
+    marker = " ".join(str(value) for value in explicit_fields if value).casefold()
+    if any(token in marker for token in ("video/", "video", "视频", "短视频")):
+        return "video"
+    return None
+
+
+def classify_media_type(doc: dict[str, Any], files: list[dict[str, Any]]) -> str:
+    """Classify attachments conservatively, prioritizing video evidence over cover images."""
+    explicit = _metadata_media_type(doc)
+    if explicit == "video" or any(_is_video(file) for file in files):
+        return "video"
+    has_preview_image = any(_is_image(file) and file.get("id") for file in files)
+    if has_preview_image:
+        return "image"
+    return "unknown"
+
+
+def _matches_required_concepts(doc: dict[str, Any], files: list[dict[str, Any]], groups: list[list[str]]) -> bool:
+    """Every concept group must match; alternatives within a group are ORed."""
+    values: list[str] = []
+    for field in ("title", "description", "source", "subject", "media_type", "mediaType", "content_type", "contentType"):
+        value = doc.get(field)
+        if value:
+            values.append(str(value))
+    for tag in doc.get("tags") or []:
+        if isinstance(tag, dict) and tag.get("name"):
+            values.append(str(tag["name"]))
+        elif tag:
+            values.append(str(tag))
+    values.extend(str(file.get("name")) for file in files if file.get("name"))
+    searchable = " ".join(values).casefold()
+    return all(any(str(term).strip().casefold() in searchable for term in group) for group in groups)
 
 
 def attach_media(client: TeedyClient, document_id: str, preview_limit: int = PREVIEW_LIMIT) -> dict[str, Any]:
@@ -92,17 +144,26 @@ def attach_media(client: TeedyClient, document_id: str, preview_limit: int = PRE
     }
 
 
-def _summarize_doc(client: TeedyClient, doc: dict[str, Any], reason: str) -> dict[str, Any]:
+def _summarize_doc(client: TeedyClient, doc: dict[str, Any], files: list[dict[str, Any]], reason: str, media_type: str) -> dict[str, Any]:
     tags = [t.get("name") for t in (doc.get("tags") or []) if t.get("name")]
-    media = attach_media(client, doc["id"]) if doc.get("id") else {"zip_url": None, "previews": [], "files": []}
+    image = next((file for file in files if _is_image(file) and file.get("id")), None)
+    previews = []
+    if image:
+        previews.append({
+            "id": image["id"],
+            "name": image.get("name"),
+            "preview_url": file_preview_url(client.base, image["id"], "web"),
+            "download_url": file_download_url(client.base, image["id"]),
+        })
     return {
         "id": doc.get("id"),
         "title": doc.get("title"),
         "summary": doc.get("description") or "",
         "tags": tags,
         "file_count": doc.get("file_count"),
-        "zip_url": media.get("zip_url"),
-        "previews": media.get("previews") or [],
+        "media_type": media_type,
+        "zip_url": zip_download_url(client.base, doc["id"]) if doc.get("id") else None,
+        "previews": previews,
         "match": reason,
         "highlight": _strip_highlight(doc.get("highlight")),
     }
@@ -114,7 +175,7 @@ def _canonical_tag_names(client: TeedyClient) -> list[str]:
 
 @mcp.tool()
 def list_tags() -> dict[str, Any]:
-    """列出仓库当前标签和口语别名。检索前先调用，把用户说法映射到 name。"""
+    """仅在需要按正式标签筛选时列出仓库当前标签和别名；纯关键词检索无需先调用。"""
     from mcp_server.vocab import load_alias_map
 
     client = _client()
@@ -139,21 +200,29 @@ def list_tags() -> dict[str, Any]:
 
 
 @mcp.tool()
-def search_materials(tags: list[str] | None = None, query: str | None = None, limit: int = DEFAULT_LIMIT) -> dict[str, Any]:
-    """按标签搜索素材，返回预览图和 zip 下载链接。tags 用 list_tags 的 name。"""
+def search_materials(
+    tags: list[str] | None = None,
+    query: str | None = None,
+    required_concepts: list[list[str]] | None = None,
+    media_type: Literal["image", "video", "any"] = "image",
+    limit: int = DEFAULT_LIMIT,
+) -> dict[str, Any]:
+    """搜索候选池。limit 默认 12、最多 20；每个 required_concepts 子列表是一个硬条件组，组内任一词命中即可、不同组都须命中。"""
     tags = [t for t in (tags or []) if str(t).strip()]
     query = (query or "").strip() or None
+    groups = [[str(term).strip() for term in group if str(term).strip()] for group in (required_concepts or [])]
+    if any(not group for group in groups):
+        return {"error": "empty_required_concept_group", "message": "required_concepts 的每一组都要包含至少一个明确说法。"}
+    if media_type not in {"image", "video", "any"}:
+        return {"error": "invalid_media_type", "allowed": ["image", "video", "any"]}
     if not tags and not query:
-        return {"error": "provide_tags_or_query", "message": "请先 list_tags，再传入 tags 或 query。"}
+        return {"error": "provide_tags_or_query", "message": "请传入 tags 或 query；使用 tags 前先 list_tags 获取实际标签名。"}
     limit = max(1, min(int(limit or DEFAULT_LIMIT), MAX_LIMIT))
 
     client = _client()
     try:
-        canonical = _canonical_tag_names(client)
-        resolved, unknown = resolve_tags(tags, canonical)
-        inferred = []
-        if query:
-            inferred = [name for name in extract_tags_from_query(query, canonical) if name not in resolved]
+        canonical = _canonical_tag_names(client) if tags else []
+        resolved, unknown = resolve_tags(tags, canonical) if tags else ([], [])
         if unknown:
             return {
                 "error": "unknown_tags",
@@ -164,46 +233,49 @@ def search_materials(tags: list[str] | None = None, query: str | None = None, li
             }
 
         used_tags = list(resolved)
-        for name in inferred:
-            if name not in used_tags:
-                used_tags.append(name)
-
-        empty_tags: list[str] = []
-        usable_tags: list[str] = []
-        for name in used_tags:
-            tag_payload = client.search_documents(f"tag:{name}", limit=1)
-            if tag_payload.get("documents") or int(tag_payload.get("total") or 0) > 0:
-                usable_tags.append(name)
-            else:
-                empty_tags.append(name)
-        used_tags = usable_tags
-        leftover = remaining_keywords(query, used_tags, canonical) if query else ""
-
-        def run(search: str, reason: str) -> list[dict[str, Any]]:
-            payload = client.search_documents(search, limit=limit)
-            return [_summarize_doc(client, doc, reason) for doc in payload.get("documents") or []]
-
-        items: list[dict[str, Any]] = []
-        match = "none"
+        terms: list[str] = []
         if used_tags:
-            tags_query = " ".join(f"tag:{name}" for name in used_tags)
-            and_query = tags_query
-            if leftover:
-                and_query = f"{and_query} {leftover}"
-            items = run(and_query, "tag_and")
-            match = "tag_and"
-            if not items and leftover:
-                items = run(tags_query, "tag_and")
-        elif query:
-            items = run(query, "keyword")
-            match = "keyword"
+            terms.extend(f"tag:{name}" for name in used_tags)
+        if query:
+            terms.append(query)
+        search = " ".join(terms)
+        payload = client.search_documents(search, limit=limit)
+        docs = payload.get("documents") or []
+        items: list[dict[str, Any]] = []
+        excluded_video = 0
+        excluded_other = 0
+        rejected_concepts = 0
+        for doc in docs:
+            document_id = doc.get("id")
+            files = client.list_files(document_id) if document_id else []
+            detected_media_type = classify_media_type(doc, files)
+            if media_type != "any" and detected_media_type != media_type:
+                if detected_media_type == "video":
+                    excluded_video += 1
+                else:
+                    excluded_other += 1
+                continue
+            if groups and not _matches_required_concepts(doc, files, groups):
+                rejected_concepts += 1
+                continue
+            reason = "tag_and" if used_tags and query else "tag" if used_tags else "keyword"
+            items.append(_summarize_doc(client, doc, files, reason, detected_media_type))
 
         return {
-            "match": match,
+            "match": "tag_and" if used_tags and query else "tag" if used_tags else "keyword",
             "used_tags": used_tags,
-            "inferred_tags": inferred,
-            "empty_tags": empty_tags,
-            "keywords": leftover or None,
+            "keywords": query,
+            "search": search,
+            "media_filter": {
+                "requested": media_type,
+                "excluded_video": excluded_video,
+                "excluded_unclassified": excluded_other,
+            },
+            "required_concepts": groups,
+            "rejected_required_concepts": rejected_concepts,
+            "teedy_total": payload.get("total"),
+            "search_limit": limit,
+            "search_truncated": int(payload.get("total") or 0) > limit,
             "total": len(items),
             "items": items,
         }

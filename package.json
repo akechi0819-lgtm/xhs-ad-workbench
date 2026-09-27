@@ -12,6 +12,7 @@
     "self-check": "node scripts/self-check.mjs",
     "test:mcp-package": "python3 -m unittest discover -s tests -p test_material_mcp_package.py -v",
     "schema:codex": "node scripts/build-codex-schema.mjs draft",
+    "canvas:export": "node scripts/export-canvas-sheet.mjs",
     "install:codex": "node scripts/install-skill.mjs codex",
     "install:workbuddy": "node scripts/install-skill.mjs workbuddy"
   }

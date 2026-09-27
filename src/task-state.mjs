@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { archiveTaskRevision, updateArchivedApproval } from "./output-archive.mjs";
 import { validateProductionSheet } from "../content/validate-production-sheet.mjs";
+import { reviewFinalRisk, reviewSheetRisk } from "../content/risk-review.mjs";
 
 // Derived from the MIT-licensed agent-xiaohongshu-workbench state and editor
 // mechanics at commit 6e58278984cb891524ead60c9a5f116b6561b4cc. Account,
@@ -152,6 +153,10 @@ export function createTaskState({ taskId = crypto.randomUUID(), threadId, brief 
       reviewedAt: null,
     },
     productionSheet: null,
+    preflightRisk: null,
+    preflightResolution: null,
+    finalRisk: null,
+    riskResolution: null,
     finalImages: {
       items: [],
       order: [],
@@ -259,7 +264,27 @@ export function createProductionSheet(state, sheet) {
     approvedReferences: cloneJson(selectedReferences),
     createdAt: now(),
   };
+  state.preflightRisk = reviewSheetRisk(sheet);
+  state.preflightResolution = null;
   state.stage = "production_sheet_ready";
+  touch(state);
+  return state;
+}
+
+export function resolvePreflightRisk(state, decisions) {
+  assertStage(state, "production_sheet_ready", "记录制作单预检判断");
+  if (!Array.isArray(decisions)) throw new Error("制作单预检判断必须是数组");
+  const expected = state.preflightRisk.hits.map((hit) => `${hit.location}|${hit.term}|${hit.offset}`);
+  const submitted = decisions.map((hit) => {
+    if (!["已修改并复核", "保留并说明依据"].includes(hit.decision) || !String(hit.note || "").trim()) {
+      throw new Error("每项制作单词库命中需记录修改复核或保留依据");
+    }
+    return `${hit.location}|${hit.term}|${hit.offset}`;
+  });
+  if (new Set(submitted).size !== expected.length || expected.some((key) => !submitted.includes(key))) {
+    throw new Error("制作单预检判断必须逐项覆盖当前全部命中");
+  }
+  state.preflightResolution = cloneJson(decisions);
   touch(state);
   return state;
 }
@@ -270,14 +295,20 @@ function normalizeFinalImage(image) {
   const sourcePath = requiredText(record.sourcePath ?? record.path ?? record.filePath ?? record.absolutePath, "成品图路径", 4000);
   const imageId = requiredText(record.id ?? crypto.randomUUID(), "成品图 ID", 300);
   const originalName = path.basename(String(record.originalName ?? record.fileName ?? sourcePath));
-  return { id: imageId, sourcePath, originalName: originalName || null, alt: String(record.alt ?? "").trim() };
+  return {
+    id: imageId, sourcePath, originalName: originalName || null, alt: String(record.alt ?? "").trim(),
+    visibleText: record.visibleText, textReadability: record.textReadability,
+  };
 }
 
 export function recordFinalImages(state, images, { orderConfirmed = false } = {}) {
-  if (!["production_sheet_ready", "approved"].includes(state.stage)) {
+  if (!["production_sheet_ready", "final_images_received", "copy_calibrated", "approved"].includes(state.stage)) {
     throw new Error(`接收成品图要求制作单已就绪，或对已批准任务开启新交付版本；当前为 ${state.stage}`);
   }
   if (!Array.isArray(images) || images.length === 0) throw new Error("至少需要一张用户选定的最终成品图");
+  if (state.preflightRisk?.hits.length && !state.preflightResolution) {
+    throw new Error("制作单中的词库命中尚未逐项判断，不能交给画布生成");
+  }
   const items = images.map(normalizeFinalImage);
   const ids = items.map((item) => item.id);
   if (new Set(ids).size !== ids.length) throw new Error("成品图 ID 不能重复");
@@ -288,6 +319,8 @@ export function recordFinalImages(state, images, { orderConfirmed = false } = {}
     receivedAt: now(),
   };
   state.finalCopy = null;
+  state.finalRisk = null;
+  state.riskResolution = null;
   state.approval = { status: "not_requested", requestedAt: null, approvedAt: null, approvedBy: null, note: null };
   state.archive = null;
   state.stage = "final_images_received";
@@ -311,7 +344,9 @@ export function confirmFinalImageOrder(state, orderedImageIds) {
 }
 
 export function calibrateCopy(state, copy) {
-  assertStage(state, "final_images_received", "校准终稿文案");
+  if (!["final_images_received", "copy_calibrated"].includes(state?.stage)) {
+    throw new Error(`校准终稿文案要求已收到成品图且尚未提交审核，当前为 ${state?.stage || "未知"}`);
+  }
   if (!state.finalImages.orderConfirmed) throw new Error("请先确认最终图片与制作页的对应顺序；顺序不清时应先询问人工");
   if (!copy || typeof copy !== "object" || Array.isArray(copy)) throw new Error("终稿文案必须是对象");
   if (!Array.isArray(copy.tags)) throw new Error("终稿标签必须是数组");
@@ -323,14 +358,47 @@ export function calibrateCopy(state, copy) {
     tags,
     calibratedAt: now(),
   };
+  state.finalRisk = reviewFinalRisk({ images: state.finalImages.order.map((id) => state.finalImages.items.find((item) => item.id === id)), copy: state.finalCopy });
+  state.riskResolution = null;
   state.stage = "copy_calibrated";
   state.approval = { status: "not_requested", requestedAt: null, approvedAt: null, approvedBy: null, note: null };
   touch(state);
   return state;
 }
 
+export function resolveFinalRisk(state, resolution) {
+  assertStage(state, "copy_calibrated", "记录风险判断");
+  if (!resolution || !Array.isArray(resolution.hits) || !Array.isArray(resolution.unreadable)) {
+    throw new Error("风险判断需包含 hits 和 unreadable 数组");
+  }
+  const expectedHits = state.finalRisk.hits.map((hit) => `${hit.location}|${hit.term}|${hit.offset}`);
+  const submittedHits = resolution.hits.map((hit) => {
+    if (!["已修改并复核", "保留并说明依据"].includes(hit.decision) || !String(hit.note || "").trim()) {
+      throw new Error("每个词项命中需写明修改复核或保留依据");
+    }
+    return `${hit.location}|${hit.term}|${hit.offset}`;
+  });
+  const expectedUnreadable = state.finalRisk.unreadable;
+  const submittedUnreadable = resolution.unreadable.map((item) => {
+    if (!String(item.note || "").trim()) throw new Error("看不清的图中文字需写明人工核对安排");
+    return item.location;
+  });
+  if (new Set(submittedHits).size !== expectedHits.length || expectedHits.some((key) => !submittedHits.includes(key)) ||
+      new Set(submittedUnreadable).size !== expectedUnreadable.length || expectedUnreadable.some((key) => !submittedUnreadable.includes(key))) {
+    throw new Error("风险判断必须逐项覆盖当前终稿的命中和待人工核对位置");
+  }
+  state.riskResolution = cloneJson(resolution);
+  touch(state);
+  return state;
+}
+
 export function requestApproval(state) {
   assertStage(state, "copy_calibrated", "提交人工确认");
+  if (!state.finalRisk) throw new Error("请先完成终稿风险检查");
+  if (state.finalRisk.unreadable.length) throw new Error("成品图仍有未完成的图上文字核对；请实际读图并重新记录后复审");
+  if ((state.finalRisk.hits.length || state.finalRisk.unreadable.length) && !state.riskResolution) {
+    throw new Error("请先逐项判断终稿风险命中和看不清的图中文字");
+  }
   state.stage = "awaiting_approval";
   state.approval = {
     status: "awaiting_approval",
@@ -369,6 +437,7 @@ export function validateTaskState(state) {
     const selected = new Set(state.references.selectedIds);
     if (state.productionSheet.approvedReferenceIds?.some((id) => !selected.has(id))) throw new Error("制作单含未获人工确认的参考资料");
     if (collectCitedReferenceIds(state.productionSheet).some((id) => !selected.has(id))) throw new Error("制作单引用了未获人工确认的参考资料");
+    if (!state.preflightRisk || state.preflightRisk.phase !== "制作单预检") throw new Error("制作单缺少词库预检");
   }
   if (stageIndex.get(state.stage) >= stageIndex.get("final_images_received")) {
     if (!Array.isArray(state.finalImages?.items) || state.finalImages.items.length === 0) {
@@ -389,6 +458,7 @@ export function validateTaskState(state) {
     throw new Error("校准文案前必须确认成品图顺序");
   }
   if (stageIndex.get(state.stage) >= stageIndex.get("copy_calibrated") && !state.finalCopy) throw new Error("终稿文案尚未校准");
+  if (stageIndex.get(state.stage) >= stageIndex.get("copy_calibrated") && !state.finalRisk) throw new Error("终稿缺少风险复核");
   if (stageIndex.get(state.stage) >= stageIndex.get("awaiting_approval") && state.approval?.status !== "awaiting_approval" && state.approval?.status !== "approved") {
     throw new Error("人工确认状态与任务阶段不一致");
   }
@@ -477,6 +547,9 @@ export async function updateTask({ root, taskId, update }) {
 
 export async function archiveTaskForApproval({ root, taskId }) {
   const state = await readTask({ root, taskId });
+  if (state.stage === "copy_calibrated") requestApproval(state);
+  else assertStage(state, "awaiting_approval", "生成待审素材包");
+  if (state.archive?.relativePath) return state;
   const archive = await archiveTaskRevision({ root, task: state });
   state.archive = archive;
   await writeTask({ root, state });

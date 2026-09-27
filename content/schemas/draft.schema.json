@@ -1,10 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/xhs-ad-workbench/draft.schema.json",
-  "title": "Human-reviewed 3-to-5-card production sheet",
+  "title": "Human-reviewed 3-to-5-card complete-poster production sheet",
   "type": "object",
   "additionalProperties": false,
-  "required": ["referenceReviewStatus", "selectedSourceIds", "claims", "title", "body", "tags", "pages", "editorNotes"],
+  "required": ["referenceReviewStatus", "selectedSourceIds", "claims", "title", "body", "tags", "brandRequirements", "canvasDefaults", "pages", "editorNotes"],
   "properties": {
     "referenceReviewStatus": { "const": "human-confirmed" },
     "selectedSourceIds": { "$ref": "#/$defs/sourceIds" },
@@ -12,12 +12,24 @@
       "type": "array",
       "items": { "$ref": "#/$defs/claim" }
     },
-    "title": { "type": "string", "minLength": 1 },
-    "body": { "type": "string" },
+    "title": { "type": "string", "minLength": 1, "description": "工作标题草稿；不是根据终稿图片校准后的发布标题。" },
+    "body": { "type": "string", "description": "发布正文工作草稿；终稿图片回读后再校准。" },
     "tags": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": { "type": "string" },
+      "description": "标签工作草稿；终稿图片回读后再校准。"
     },
+    "brandRequirements": {
+      "type": "string",
+      "minLength": 1,
+      "description": "整套共用的品牌语气、颜色、禁用表达或其他视觉要求。"
+    },
+    "brandAssets": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/brandAsset" },
+      "description": "按需填写本机 Logo 或固定元素的原文件位置及用途；不需要时可省略或留空。"
+    },
+    "canvasDefaults": { "$ref": "#/$defs/canvasDefaults" },
     "pages": {
       "type": "array",
       "minItems": 3,
@@ -52,34 +64,76 @@
         }
       ]
     },
+    "brandAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "path", "purpose"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1, "description": "使用者本机可访问的原文件路径或可识别位置。" },
+        "purpose": { "type": "string", "minLength": 1, "description": "说明此 Logo 或固定元素应如何使用。" }
+      }
+    },
+    "canvasDefaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["imageModel", "resolution", "aspectRatio", "quality", "imageCount"],
+      "properties": {
+        "imageModel": { "type": "string", "minLength": 1, "description": "填当前画布配置中可用的图片模型显示名称；已配置 GPT Image 2 时可使用它，不填写 API Key。" },
+        "resolution": { "type": "string", "enum": ["1k", "2k", "4k", "auto"] },
+        "aspectRatio": { "type": "string", "enum": ["1:1", "2:3", "3:2", "4:3", "3:4", "16:9", "9:16", "21:9", "9:21", "auto"] },
+        "quality": { "type": "string", "enum": ["auto", "high", "medium", "low"] },
+        "imageCount": { "type": "integer", "minimum": 1, "maximum": 15 }
+      }
+    },
     "page": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["cardId", "readerFacingCopy", "visualPrompt", "sourceIds"],
+      "required": ["cardId", "readerFacingCopy", "canvasPlan", "sourceIds"],
       "properties": {
         "cardId": { "type": "string", "minLength": 1 },
         "readerFacingCopy": {
           "type": "object",
           "additionalProperties": false,
           "required": ["headline", "body"],
+          "description": "本页画面中需要出现的精确文案，是可见文字的唯一来源。",
           "properties": {
             "kicker": { "type": "string", "description": "Optional visible label for the reader." },
-            "headline": { "type": "string", "minLength": 1, "description": "Reader-facing copy only." },
+            "headline": { "type": "string", "minLength": 1, "description": "画面标题原文。" },
             "body": { "type": "string", "description": "Reader-facing copy only." },
             "callout": { "type": "string", "description": "Optional short reader-facing emphasis." }
           }
         },
-        "visualPrompt": {
+        "canvasPlan": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["promptText", "textTreatment"],
-          "properties": {
-            "promptText": { "type": "string", "minLength": 1, "description": "Visual generation direction; keep reader-facing wording in readerFacingCopy." },
-            "textTreatment": {
-              "type": "string",
-              "enum": ["place-exact-copy-from-readerFacingCopy", "leave-space-for-manual-typesetting", "no-text"]
+          "required": ["stylePrompt", "layoutPrompt"],
+          "description": "逐页的场景风格和版式说明。readerFacingCopy 是画面文字的唯一来源；Logo 和参考图按需提供。",
+          "allOf": [
+            {
+              "if": { "required": ["logoAssetName"] },
+              "then": { "required": ["logoPlacement"] }
             },
-            "avoid": { "type": "array", "items": { "type": "string" } }
+            {
+              "if": { "required": ["logoPlacement"] },
+              "then": { "required": ["logoAssetName"] }
+            }
+          ],
+          "properties": {
+            "stylePrompt": { "type": "string", "minLength": 1, "description": "描述场景、风格、色彩和视觉气氛，不复制画面文案。" },
+            "layoutPrompt": { "type": "string", "minLength": 1, "description": "描述标题、正文和重点信息的位置与层级，不复制画面文案。" },
+            "logoAssetName": { "type": "string", "minLength": 1, "description": "按需引用 root.brandAssets 中已声明的 Logo 名称。" },
+            "logoPlacement": { "type": "string", "minLength": 1, "description": "说明已声明的 Logo 在画面中的放置位置。" },
+            "visualReference": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["sourceId", "path", "purpose"],
+              "properties": {
+                "sourceId": { "type": "string", "minLength": 1 },
+                "path": { "type": "string", "minLength": 1, "description": "本机可直接添加到画布的图片路径。" },
+                "purpose": { "type": "string", "minLength": 1, "description": "说明参考图只借鉴的视觉方面。" }
+              }
+            }
           }
         },
         "sourceIds": { "$ref": "#/$defs/sourceIds" }
