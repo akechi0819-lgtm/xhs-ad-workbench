@@ -13,6 +13,8 @@
     "test:mcp-package": "python3 -m unittest discover -s tests -p test_material_mcp_package.py -v",
     "schema:codex": "node scripts/build-codex-schema.mjs draft",
     "canvas:export": "node scripts/export-canvas-sheet.mjs",
+    "canvas:run": "node scripts/run-canvas-sheet.mjs",
+    "canvas:agent": "npx -y @basketikun/canvas-agent@0.6.0",
     "install:codex": "node scripts/install-skill.mjs codex",
     "install:workbuddy": "node scripts/install-skill.mjs workbuddy"
   }

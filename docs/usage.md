@@ -39,10 +39,12 @@ node scripts/workbench.mjs sheet --task example-001 --file sheet.json
 
 需要重导制作单时运行 `npm run canvas:export -- --task example-001 --output runs/tasks/example-001/canvas-sheet.md`。导出只整理已保存的制作单，不调用画布或生图。
 
+用户确认制作单后，若 Infinite Canvas v0.19.0 的本地 Canvas Agent 已启动并与目标画布连接，Agent 直接运行 `npm run canvas:run -- --sheet runs/tasks/<任务ID>/canvas-sheet.md`。该命令从 MD 确定性地读取文字、本地 Logo／参考图路径和连线说明，按页创建节点并触发生图；大于 2 MiB 的参考图会自动缩小为可用输入，不改原件。失败时用 `--page N` 或 `--from-page N` 续做；`--plan` 只检查文件和节点，不触发生图。连接方法见 [README](../README.md#按制作单自动操作无限画布)。
+
 后续用户在画布选好成品图，Agent **实际打开并放大查看每张图**，先向用户指出具体页/位置的文字错漏、信息层级、手机可读性、Logo 和图文对应问题，再依次运行 `images`、必要时 `order`、`copy`。每个 `images.json` 项须有 `sourcePath`、逐行 `visibleText`，以及 `textReadability`（`clear` 或 `unclear`）；标成 `clear` 却没有任何实际文字记录时，不能作为已审图提交。看不清时仍记录能辨认的字并标 `unclear`。`copy` 用同一份随包词库生成终稿风险报告，覆盖图上字、标题、正文、标签和可选 `cta`；它只做文字扫描，不替代前面的视觉审核。也可单独执行 `node scripts/check-final-copy.mjs --file final-review-input.json` 查看报告；该 JSON 含 `images` 与 `copy`。
 
 有词项命中时，人逐项决定后运行 `risk-review --file 决定.json --human-confirmed`，说明修改复核或保留依据。报告中的位置、词项和偏移须原样对应。看不清的字即使有说明也不能提交为通过，须先人工核对并重新运行 `images`、`copy`；修改文案后重新运行 `copy`，旧风险判断自动失效。
 
 Agent 先给用户看逐图问题与配套文案；需要修改时继续用 `images`、`copy` 复审，不要提前运行 `submit`。用户认可当前图文后，`submit` 生成 `output/<taskId>/revision-NNN/` 待审包，含最终图、`copy.json`、`production-sheet.json`、`sources.json`、`risk-review.json` 和 `manifest.json`。只有用户明确审核通过才运行 `approve --human-confirmed`；重新回传成品则建立新版本并重审。归档图片暂不可读时 `submit` 不推进状态，修复文件后可重试。详细参数可查看 `scripts/workbench.mjs`。
 
-脚本不调用素材 MCP，也不连接画布或发布平台。
+`workbench.mjs` 不调用素材 MCP、画布或发布平台；`canvas:run` 只操作用户当前连接的画布并触发生图，不发布平台内容。

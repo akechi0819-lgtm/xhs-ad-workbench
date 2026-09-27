@@ -11,6 +11,8 @@ const required = [
   "mcp_server/settings.py", "mcp_server/teedy.py", "mcp_server/vocab.py",
   "mcp_server/tag_aliases.json", "requirements-mcp.txt",
   "content/risk-lexicon.json",
+  "content/canvas-automation.mjs", "content/canvas-agent-runner.mjs",
+  "scripts/run-canvas-sheet.mjs", "scripts/prepare-canvas-image.py",
   "scripts/install_material_mcp.py", "scripts/verify_teedy_account.py",
   "content/schemas/deconstruct.schema.json", "content/schemas/draft.schema.json",
   "content/schemas/humanize.schema.json", "content/validate-production-sheet.mjs",
