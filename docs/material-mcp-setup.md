@@ -10,7 +10,7 @@
 
 ## 安装
 
-在下载后的工作台根目录打开交互终端，按使用的客户端运行一条命令：
+在下载后的工作台根目录，按使用的客户端运行一条命令。默认模式需要交互终端：
 
 ```bash
 python3 scripts/install_material_mcp.py --client codex
@@ -22,13 +22,23 @@ python3 scripts/install_material_mcp.py --client codex
 python3 scripts/install_material_mcp.py --client workbuddy
 ```
 
-安装器会把只读 MCP 文件复制到用户数据目录，再在那里创建独立 Python 环境并安装 `requirements-mcp.txt`。随后在终端输入 Teedy HTTPS 地址和用户名；密码由隐藏提示读取，不回显，也不会作为命令参数传递。安装器验证账号登录和只读访问权限后，保存本机凭据、注册 MCP，并安装“素材库MCP”技能。安装过程不调用素材检索工具。
+安装器会把只读 MCP 文件复制到用户数据目录，再在那里创建独立 Python 环境并安装 `requirements-mcp.txt`。默认模式随后在终端输入 Teedy HTTPS 地址和用户名；密码由隐藏提示读取。
 
-此安装器只支持交互终端，不支持 CI 或 Agent 代填密码。正常安装只会在下表所列用户数据目录创建 MCP 虚拟环境；如果绕过入口直接调用安装器内部函数，可能在源码目录另建 `.venv`，这不属于受支持的安装方式。
+若不方便使用交互终端，可在工作台仓库外创建 UTF-8 TXT，内容依次为三行：
+
+```text
+https://<teedy-host>
+<Teedy 用户名>
+<Teedy 密码>
+```
+
+然后运行 `python3 scripts/install_material_mcp.py --client workbuddy --credentials-file <TXT绝对路径>`；Codex 改用 `--client codex`。路径可以含中文，密码不会成为命令参数。也可明确选择在对话中提供这三项，让 Agent 在本机创建临时 TXT 并运行该命令；Agent 完成后删除它创建的临时 TXT，不复述密码。用户自行创建的 TXT 由用户自行删除。对话提供的密码会留在该对话记录中。
+
+安装器验证账号登录和只读访问权限后，保存本机凭据、注册 MCP，并安装“素材库MCP”技能。安装过程不调用素材检索工具。正常安装只会在下表所列用户数据目录创建 MCP 虚拟环境；如果绕过入口直接调用安装器内部函数，可能在源码目录另建 `.venv`，这不属于受支持的安装方式。
 
 WorkBuddy 的 MCP 配置写入用户目录 `~/.workbuddy/mcp.json`，两个技能分别安装到 `~/.workbuddy/skills/material-library/` 和 `~/.workbuddy/skills/xhs-ad-workbench/`。Codex 的技能安装到 `~/.agents/skills/`。
 
-Teedy 地址和凭据不会写入工作台目录、任务文件、Agent 对话或客户端配置中的明文值。Unix 系统的凭据文件权限限制为仅当前用户可读写。不要将本机配置目录打包或提交 Git。
+Teedy 凭据不会写入工作台任务文件或客户端配置中的明文值。Unix 系统的最终凭据文件权限限制为仅当前用户可读写。不要将 TXT 或本机配置目录打包、提交 Git。
 
 ## 安装工作台技能
 
@@ -76,7 +86,7 @@ MCP 安装程序和虚拟环境位于用户数据目录，Teedy 凭据位于用�
 
 ## 故障处理
 
-- 安装器必须在交互终端运行；不要通过 Agent 对话发送密码。
+- 默认输入模式需要交互终端；使用 `--credentials-file` 可免交互安装。不要把密码放在命令参数中。
 - 若提示 `Codex CLI was not found`，先安装 Codex CLI 并让当前终端找到 `codex` 命令，再重跑 Codex 安装器。
 - 若账号验证失败，确认地址为可访问的远端 HTTPS URL，账号是 Teedy Reader 或 ADMIN，并具有读取权限。
 - 若 WorkBuddy 提示连接未信任，回到自定义连接器信任并启用 `material-library`。

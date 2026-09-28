@@ -156,6 +156,104 @@ class MaterialMcpPackageTest(unittest.TestCase):
         self.assertEqual(raised.exception.code, 2)
         run.assert_not_called()
 
+    def test_credentials_file_requires_three_nonempty_lines_and_https_url(self) -> None:
+        credentials_path = self.home / "teedy.txt"
+        credentials_path.write_text(
+            "\ufeffhttps://teedy.example/base\nreader\nsecret\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            installer.read_credentials_file(credentials_path),
+            ("https://teedy.example/base", "reader", "secret"),
+        )
+
+        credentials_path.write_text(
+            "https://teedy.example\nreader\n  secret with spaces  \n",
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            installer.read_credentials_file(credentials_path),
+            ("https://teedy.example", "reader", "  secret with spaces  "),
+        )
+
+        credentials_path.write_text("http://teedy.example\nreader\nsecret\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "HTTPS URL"):
+            installer.read_credentials_file(credentials_path)
+
+        credentials_path.write_text("https://teedy.example\n\nsecret\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "exactly three"):
+            installer.read_credentials_file(credentials_path)
+
+    def test_credentials_file_installs_without_tty_or_prompts(self) -> None:
+        credentials_path = self.home / "teedy.txt"
+        credentials_path.write_text(
+            "https://teedy.example\nreader\nsecret-from-file\n",
+            encoding="utf-8",
+        )
+        installed_credentials = self.home / ".config" / "material-library-mcp" / "teedy.env"
+        argv = [
+            "install_material_mcp.py",
+            "--client",
+            "workbuddy",
+            "--credentials-file",
+            str(credentials_path),
+        ]
+        with mock.patch("sys.argv", argv), \
+             mock.patch.object(installer.sys, "stdin", io.StringIO()), \
+             mock.patch.object(installer, "copy_managed_install", return_value=installer.ROOT), \
+             mock.patch.object(installer, "prepare_runtime", return_value=self.home / "python"), \
+             mock.patch.object(installer, "credentials_file_path", return_value=installed_credentials), \
+             mock.patch.object(installer, "verify_credentials", return_value=True) as verify, \
+             mock.patch.object(installer, "install_skill", return_value=self.home / "skill"), \
+             mock.patch.object(installer, "register_workbuddy", return_value=self.home / "mcp.json"), \
+             mock.patch("builtins.input", side_effect=AssertionError("unexpected prompt")), \
+             mock.patch.object(installer.getpass, "getpass", side_effect=AssertionError("unexpected prompt")), \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(installer.main(), 0)
+
+        verify.assert_called_once_with(
+            self.home / "python",
+            installed_credentials.with_name("teedy.env.pending"),
+        )
+        self.assertIn(
+            "MATERIAL_LIBRARY_TEEDY_PASSWORD=secret-from-file",
+            installed_credentials.read_text(encoding="utf-8"),
+        )
+
+    def test_credentials_file_path_is_forwarded_to_managed_copy_as_absolute_path(self) -> None:
+        credentials_path = self.home / "teedy.txt"
+        credentials_path.write_text("https://teedy.example\nreader\nsecret\n", encoding="utf-8")
+        managed_copy = self.home / "managed-install"
+        with mock.patch("sys.argv", [
+            "install_material_mcp.py", "--client", "workbuddy", "--credentials-file", str(credentials_path),
+        ]), mock.patch.object(installer.sys, "stdin", io.StringIO()), \
+             mock.patch.object(installer, "copy_managed_install", return_value=managed_copy), \
+             mock.patch.object(installer.subprocess, "run", return_value=type("Result", (), {"returncode": 0})()) as run:
+            self.assertEqual(installer.main(), 0)
+
+        command = run.call_args.args[0]
+        self.assertEqual(command[command.index("--credentials-file") + 1], str(credentials_path.resolve()))
+
+    def test_invalid_credentials_file_stops_before_install_work_without_echoing_content(self) -> None:
+        credentials_path = self.home / "teedy.txt"
+        credentials_path.write_text("http://teedy.example\nreader\nsecret-do-not-echo\n", encoding="utf-8")
+        with mock.patch("sys.argv", [
+            "install_material_mcp.py", "--client", "workbuddy", "--credentials-file", str(credentials_path),
+        ]), mock.patch.object(installer.sys, "stdin", io.StringIO()), \
+             mock.patch.object(installer, "copy_managed_install") as copy_install, \
+             mock.patch.object(installer, "prepare_runtime") as prepare_runtime, \
+             mock.patch.object(installer.subprocess, "run") as run, \
+             contextlib.redirect_stderr(io.StringIO()) as stderr:
+            with self.assertRaises(SystemExit) as raised:
+                installer.main()
+
+        self.assertEqual(raised.exception.code, 2)
+        copy_install.assert_not_called()
+        prepare_runtime.assert_not_called()
+        run.assert_not_called()
+        self.assertNotIn("secret-do-not-echo", stderr.getvalue())
+
+
 
 if __name__ == "__main__":
     unittest.main()

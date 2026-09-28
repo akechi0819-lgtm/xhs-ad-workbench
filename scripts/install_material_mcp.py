@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install 素材库MCP locally with Teedy credentials entered in a hidden terminal prompt."""
+"""Install 素材库MCP locally with Teedy credentials entered in a hidden prompt or credentials file."""
 from __future__ import annotations
 
 import argparse
@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -77,6 +78,33 @@ def write_pending_credentials(base_url: str, username: str, password: str, path:
         credentials_file.write(data)
     if os.name != "nt":
         path.chmod(0o600)
+
+
+def read_credentials_file(path: Path) -> tuple[str, str, str]:
+    """Read a three-line UTF-8 file: HTTPS URL, username, and password."""
+    try:
+        contents = path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeError) as exc:
+        raise ValueError(f"could not read credentials file: {path}") from exc
+
+    lines = contents.splitlines()
+    if len(lines) != 3 or any(not line.strip() for line in lines):
+        raise ValueError("credentials file must contain exactly three non-empty lines: HTTPS URL, username, and password")
+    base_url = lines[0].strip()
+    username = lines[1].strip()
+    password = lines[2]
+    try:
+        parsed_url = urlsplit(base_url)
+        valid_url = parsed_url.scheme.lower() == "https" and bool(parsed_url.hostname)
+        # Accessing port also rejects malformed port values.
+        _ = parsed_url.port
+    except ValueError:
+        valid_url = False
+    if not valid_url or parsed_url.username or parsed_url.password:
+        raise ValueError("the first credentials-file line must be a Teedy HTTPS URL without embedded credentials")
+    if not username or not password.strip():
+        raise ValueError("credentials file must contain a non-empty username and password")
+    return base_url, username, password
 
 
 def verify_credentials(venv_python: Path, path: Path) -> bool:
@@ -157,28 +185,51 @@ def register_workbuddy(venv_python: Path, credentials_path: Path) -> Path:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--client", choices=("codex", "workbuddy"), required=True)
+    parser.add_argument(
+        "--credentials-file",
+        type=Path,
+        help="UTF-8 text file with exactly three non-empty lines: Teedy HTTPS URL, username, password",
+    )
     parser.add_argument("--installed-copy", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
 
-    if not sys.stdin.isatty():
-        parser.error("run this installer in an interactive terminal; the Teedy password is entered without echo")
+    credentials = None
+    if args.credentials_file is not None:
+        try:
+            credentials = read_credentials_file(args.credentials_file)
+        except ValueError as exc:
+            parser.error(str(exc))
+    elif not sys.stdin.isatty():
+        parser.error("run this installer in an interactive terminal, or provide --credentials-file")
 
     client_mode = args.client
 
     if not args.installed_copy:
         destination = copy_managed_install()
         if destination.resolve() != ROOT.resolve():
+            command = [
+                sys.executable,
+                str(destination / "scripts" / "install_material_mcp.py"),
+                "--installed-copy",
+                "--client",
+                client_mode,
+            ]
+            if args.credentials_file is not None:
+                command.extend(("--credentials-file", str(args.credentials_file.resolve())))
             result = subprocess.run(
-                [sys.executable, str(destination / "scripts" / "install_material_mcp.py"), "--installed-copy", "--client", client_mode],
+                command,
                 check=False,
             )
             return result.returncode
 
     print("Installing 素材库MCP. Use your Teedy Reader or ADMIN account.")
     venv_python = prepare_runtime()
-    base_url = input("Remote Teedy HTTPS URL: ").strip()
-    username = input("Your Teedy username: ").strip()
-    password = getpass.getpass("Your Teedy password (hidden): ")
+    if credentials is None:
+        base_url = input("Remote Teedy HTTPS URL: ").strip()
+        username = input("Your Teedy username: ").strip()
+        password = getpass.getpass("Your Teedy password (hidden): ")
+    else:
+        base_url, username, password = credentials
 
     credentials_path = credentials_file_path()
     pending_path = credentials_path.with_name("teedy.env.pending")
