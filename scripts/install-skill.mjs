@@ -8,7 +8,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const source = path.join(root, "skills", "xhs-ad-workbench");
 const clients = {
   codex: path.join(os.homedir(), ".agents", "skills", "xhs-ad-workbench"),
-  workbuddy: path.join(os.homedir(), ".workbuddy-ai", "skills", "xhs-ad-workbench"),
+  workbuddy: path.join(os.homedir(), ".workbuddy", "skills", "xhs-ad-workbench"),
 };
 const args = process.argv.slice(2);
 const client = args.find((arg) => arg === "codex" || arg === "workbuddy");

@@ -3,10 +3,10 @@ import test from "node:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadRiskLexicon, reviewFinalRisk, reviewSheetRisk } from "../content/risk-review.mjs";
 import { calibrateCopy, createTaskState, recordFinalImages, requestApproval, resolveFinalRisk, resolvePreflightRisk, setTaskBrief } from "../src/task-state.mjs";
-process.env.XHS_RISK_LEXICON = new URL("./fixtures/risk-lexicon.json", import.meta.url).pathname;
+process.env.XHS_RISK_LEXICON = fileURLToPath(new URL("./fixtures/risk-lexicon.json", import.meta.url));
 
 test("公开包在没有私有 runs 目录或 HTML 源文件时默认扫描随包词库", async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "xhs-risk-lexicon-package-"));

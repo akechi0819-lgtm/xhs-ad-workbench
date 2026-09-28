@@ -20,7 +20,7 @@ from mcp_server.settings import credentials_file_path, installation_dir
 MCP_ID = "material-library"
 SKILL_SOURCE = ROOT / "skills" / "material-library"
 CODEX_SKILL_DESTINATION = Path.home() / ".agents" / "skills" / MCP_ID
-WORKBUDDY_SKILL_DESTINATION = Path.home() / ".workbuddy-ai" / "skills" / MCP_ID
+WORKBUDDY_SKILL_DESTINATION = Path.home() / ".workbuddy" / "skills" / MCP_ID
 SERVER = ROOT / "mcp_server" / "server.py"
 VERIFY = ROOT / "scripts" / "verify_teedy_account.py"
 
@@ -128,7 +128,7 @@ def register_codex(venv_python: Path, credentials_path: Path) -> None:
 
 
 def register_workbuddy(venv_python: Path, credentials_path: Path) -> Path:
-    config_path = Path.home() / ".workbuddy-ai" / ".mcp.json"
+    config_path = Path.home() / ".workbuddy" / "mcp.json"
     config_path.parent.mkdir(parents=True, exist_ok=True)
     if config_path.exists():
         try:

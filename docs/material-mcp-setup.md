@@ -24,6 +24,10 @@ python3 scripts/install_material_mcp.py --client workbuddy
 
 安装器会把只读 MCP 文件复制到用户数据目录，再在那里创建独立 Python 环境并安装 `requirements-mcp.txt`。随后在终端输入 Teedy HTTPS 地址和用户名；密码由隐藏提示读取，不回显，也不会作为命令参数传递。安装器验证账号登录和只读访问权限后，保存本机凭据、注册 MCP，并安装“素材库MCP”技能。安装过程不调用素材检索工具。
 
+此安装器只支持交互终端，不支持 CI 或 Agent 代填密码。正常安装只会在下表所列用户数据目录创建 MCP 虚拟环境；如果绕过入口直接调用安装器内部函数，可能在源码目录另建 `.venv`，这不属于受支持的安装方式。
+
+WorkBuddy 的 MCP 配置写入用户目录 `~/.workbuddy/mcp.json`，两个技能分别安装到 `~/.workbuddy/skills/material-library/` 和 `~/.workbuddy/skills/xhs-ad-workbench/`。Codex 的技能安装到 `~/.agents/skills/`。
+
 Teedy 地址和凭据不会写入工作台目录、任务文件、Agent 对话或客户端配置中的明文值。Unix 系统的凭据文件权限限制为仅当前用户可读写。不要将本机配置目录打包或提交 Git。
 
 ## 安装工作台技能

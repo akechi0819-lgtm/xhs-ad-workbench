@@ -82,7 +82,7 @@ class MaterialMcpPackageTest(unittest.TestCase):
         root = installer.ROOT
         targets = {
             "codex": (self.home / ".agents" / "skills", installer.CODEX_SKILL_DESTINATION),
-            "workbuddy": (self.home / ".workbuddy-ai" / "skills", installer.WORKBUDDY_SKILL_DESTINATION),
+            "workbuddy": (self.home / ".workbuddy" / "skills", installer.WORKBUDDY_SKILL_DESTINATION),
         }
         for client, (skill_root, original_destination) in targets.items():
             workbench_skill = skill_root / "xhs-ad-workbench"
@@ -100,7 +100,7 @@ class MaterialMcpPackageTest(unittest.TestCase):
             marker.write_text("keep the workbench skill", encoding="utf-8")
             destination = skill_root / "material-library"
             with mock.patch.object(installer, "CODEX_SKILL_DESTINATION", self.home / ".agents" / "skills" / "material-library"), \
-                 mock.patch.object(installer, "WORKBUDDY_SKILL_DESTINATION", self.home / ".workbuddy-ai" / "skills" / "material-library"):
+                 mock.patch.object(installer, "WORKBUDDY_SKILL_DESTINATION", self.home / ".workbuddy" / "skills" / "material-library"):
                 self.assertEqual(installer.install_skill(client), destination)
 
             self.assertTrue((destination / "SKILL.md").is_file())
@@ -109,7 +109,7 @@ class MaterialMcpPackageTest(unittest.TestCase):
             self.assertNotEqual(destination, original_destination)
 
     def test_workbuddy_registration_writes_only_to_temporary_home(self) -> None:
-        config_path = self.home / ".workbuddy-ai" / ".mcp.json"
+        config_path = self.home / ".workbuddy" / "mcp.json"
         config_path.parent.mkdir(parents=True)
         config_path.write_text(
             json.dumps({"mcpServers": {"other-server": {"command": "other"}, "existing-library": {}}}),

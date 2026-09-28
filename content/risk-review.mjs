@@ -11,7 +11,7 @@ export function loadRiskLexicon(filePath = process.env.XHS_RISK_LEXICON || defau
   try {
     payload = JSON.parse(fs.readFileSync(filePath, "utf8"));
   } catch (error) {
-    if (error.code === "ENOENT") throw new Error("工作台缺少随项目分发的 content/risk-lexicon.json");
+    if (error.code === "ENOENT") throw new Error(`无法读取风险词库：${filePath}`);
     throw error;
   }
   if (!Array.isArray(payload.entries) || payload.entries.some((entry) =>
