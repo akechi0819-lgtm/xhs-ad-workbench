@@ -24,6 +24,7 @@ class MaterialMcpPackageTest(unittest.TestCase):
             os.environ,
             {
                 "HOME": str(self.home),
+                "USERPROFILE": str(self.home),
                 "APPDATA": str(self.home / "AppData" / "Roaming"),
                 "LOCALAPPDATA": str(self.home / "AppData" / "Local"),
                 "XDG_CONFIG_HOME": str(self.home / ".config"),
